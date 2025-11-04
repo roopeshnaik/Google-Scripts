@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: #f9fbfd;
+        margin: 0;
+        padding: 6px 5px 0 5px;
+      }
+      #expenseForm {
+        background: #fff;
+        border-radius: 6px;
+        box-shadow: 0 1px 4px #e0e3e8;
+        padding: 16px;
+        max-width: 330px;
+        margin: 0 auto;
+      }
+      label {
+        font-weight: 500;
+        display: block;
+        margin-bottom: 2px;
+        color: #215368;
+        font-size: 13px;
+      }
+      input, select, textarea {
+        width: 100%;
+        padding: 6px;
+        margin-bottom: 12px;
+        border: 1px solid #d0d4da;
+        border-radius: 4px;
+        font-size: 13px;
+        box-sizing: border-box;
+        background: #fbfcfe;
+      }
+      textarea {
+        resize: vertical;
+        min-height: 28px;
+        max-height: 65px;
+      }
+      button[type="submit"] {
+        background: #215368;
+        color: #fff;
+        border: none;
+        padding: 7px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      button[type="submit"]:hover {
+        background: #17384a;
+      }
+      #message {
+        color: #2e7d32;
+        font-weight: 500;
+        margin-top: 7px;
+        text-align: center;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <form id="expenseForm">
+      <label>Date:</label>
+      <input type="date" name="date" required>
+
+      <label>Category:</label>
+      <select name="category" id="category" required></select>
+
+      <label>Description:</label>
+      <input type="text" name="description" required>
+
+      <label>Amount:</label>
+      <input type="number" name="amount" step="1" required>
+
+      <label>Investment (Yes/No):</label>
+      <select name="investment">
+        <option value="" selected>None</option>
+        <option value="Yes">Yes</option>
+        <option value="No">No</option>
+      </select>
+
+      <label>Payment Method:</label>
+      <select name="paymentMethod" id="paymentMethod" required></select>
+
+      <label>Notes:</label>
+      <textarea name="notes"></textarea>
+
+      <button type="submit">Add Expense</button>
+    </form>
+
+    <div id="message"></div>
+
+    <script>
+      // Set current date as default in date input
+      document.addEventListener('DOMContentLoaded', function() {
+        var today = new Date();
+        var yyyy = today.getFullYear();
+        var mm = String(today.getMonth() + 1).padStart(2, '0');
+        var dd = String(today.getDate()).padStart(2, '0');
+        var formatted = yyyy + '-' + mm + '-' + dd;
+        document.querySelector('input[type="date"]').value = formatted;
+      });
+      
+      function populateDropdowns(options) {
+        const categorySelect = document.getElementById('category');
+        options.categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.textContent = cat;
+          option.value = cat;
+          categorySelect.appendChild(option);
+        });
+        const paymentSelect = document.getElementById('paymentMethod');
+        options.payments.forEach(pay => {
+          const option = document.createElement('option');
+          option.textContent = pay;
+          option.value = pay;
+          paymentSelect.appendChild(option);
+        });
+      }
+
+      google.script.run.withSuccessHandler(populateDropdowns).getDropdownOptions();
+
+      document.getElementById('expenseForm').addEventListener('submit', e => {
+        e.preventDefault();
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        google.script.run.withSuccessHandler(msg => {
+          document.getElementById('message').textContent = msg;
+          e.target.reset();
+
+          // Reset date to today in yyyy-mm-dd format immediately  
+          const today = new Date().toISOString().substring(0, 10);
+          document.querySelector('input[type="date"]').value = today;
+        }).saveExpense(data);
+      });
+    </script>
+  </body>
+</html>
