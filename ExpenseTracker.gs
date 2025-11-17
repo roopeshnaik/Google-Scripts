@@ -47,44 +47,54 @@ function getDropdownOptions() {
   };
 }
 
-function getFirstRecordRow(sheet) {
-  // If header is at row 1, records start at row 2
-  const startRow = 2;
+function findInsertRowByDate(sheet, newDate) {
+  // Assuming "Date" is in column 1, data starts at row 2
   const lastRow = sheet.getLastRow();
+  for (let i = 2; i <= lastRow; i++) {
+    const cellDateStr = sheet.getRange(i, 1).getValue();
+    if (!cellDateStr) continue;
 
-  // Scan from startRow down for first record
-  for (let i = startRow; i <= lastRow; i++) {
-    const val = sheet.getRange(i, 1).getValue();
-    if (val !== "" && val !== null) {
+    // Parse both Excel and ISO date formats
+    const cellDate = new Date(cellDateStr);
+    const testDate = new Date(newDate);
+
+    // If the new date is greater or equal, insert above this row
+    // For descending order: newer dates higher
+    if (testDate >= cellDate) {
       return i;
     }
   }
-  // If no records found, return where first record should go
-  return startRow;
+  // If not found, insert at the bottom
+  return lastRow + 1;
 }
 
 function saveExpense(data) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
 
-  // Find top of records block
-  const insertRow = getFirstRecordRow(sheet);
+  // Find where to insert by date
+  const insertRow = findInsertRowByDate(sheet, data.date);
 
-  // Insert a new row above first record row (shifts all records down)
+  // Insert a new row above found position
   sheet.insertRowBefore(insertRow);
+
+  // Correct expense/investment column logic
+  let amountValue = parseFloat(data.amount) || 0;
+  let investmentValue = 0;
+  if (data.category.trim().toLowerCase() === 'investments') {
+    investmentValue = amountValue;
+    amountValue = 0;
+  }
 
   // Write the expense at the inserted row
   const rowData = [
     data.date,
     data.category,
     data.description,
-    parseFloat(data.amount),
-    data.investment,
+    amountValue,
+    investmentValue,
     data.paymentMethod,
     data.notes
   ];
   sheet.getRange(insertRow, 1, 1, rowData.length).setValues([rowData]);
-
-  return 'New expense added at row ' + insertRow + ', for '+ data.date + '.';
+  return 'New expense added at ' + insertRow + ' for ' + amountValue + ', against ' + data.category + '.';
 }
-
-
