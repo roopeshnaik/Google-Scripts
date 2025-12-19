@@ -78,7 +78,7 @@ function saveExpense(data) {
   sheet.insertRowBefore(insertRow);
 
   // Correct expense/investment column logic
-  let amountValue = parseFloat(data.amount) || 0;
+  let amountValue = data.amount || 0;
   let investmentValue = 0;
   if (data.category.trim().toLowerCase() === 'investments') {
     investmentValue = amountValue;
