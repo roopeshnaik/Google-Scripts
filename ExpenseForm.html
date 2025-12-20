@@ -7,23 +7,26 @@
         font-family: 'Segoe UI', Arial, sans-serif;
         background: #f9fbfd;
         margin: 0;
-        padding: 6px 5px 0 5px;
+        padding: 6px;
       }
+
       #expenseForm {
         background: #fff;
         border-radius: 6px;
         box-shadow: 0 1px 4px #e0e3e8;
         padding: 16px;
-        max-width: 330px;
+        max-width: 340px;
         margin: 0 auto;
       }
+
       label {
         font-weight: 500;
         display: block;
-        margin-bottom: 2px;
+        margin-bottom: 3px;
         color: #215368;
         font-size: 13px;
       }
+
       input, select, textarea {
         width: 100%;
         padding: 6px;
@@ -34,51 +37,69 @@
         box-sizing: border-box;
         background: #fbfcfe;
       }
+
       textarea {
         resize: vertical;
-        min-height: 28px;
-        max-height: 65px;
+        min-height: 30px;
+        max-height: 60px;
       }
-      button[type="submit"] {
+
+      input[readonly], select:disabled {
+        background: #f2f4f7;
+        color: #555;
+      }
+
+      button {
         background: #215368;
         color: #fff;
         border: none;
-        padding: 7px 12px;
+        padding: 8px 14px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 13px;
         font-weight: 600;
+        width: 100%;
       }
-      button[type="submit"]:hover {
+
+      button:hover {
         background: #17384a;
       }
+
       #message {
-        color: darkblue;
-        font-weight: 500;
-        margin-top: 7px;
-        text-align: center;
+        margin-top: 10px;
         font-size: 13px;
+        font-weight: 500;
+        text-align: center;
+        color: #215368;
       }
     </style>
   </head>
+
   <body>
     <form id="expenseForm">
-      <label>Date:</label>
-      <input type="date" name="date" required>
 
-      <label>Category:</label>
-      <select name="category" id="category" required></select>
+      <label>Date</label>
+      <input type="date" name="date" id="date" required>
 
-      <label>Description:</label>
-      <input type="text" name="description" required>
+      <label>Expense Name</label>
+      <select name="expenseName" id="expenseName" required></select>
+      
+      <label>Amount</label>
+      <input type="number" name="amount" required>
 
-      <label>Amount:</label>
-      <input type="text" name="amount" required>
+      <label>Category</label>
+      <select id="category" disabled></select>
 
-      <label>Payment Method:</label>
-      <select name="paymentMethod" id="paymentMethod" required></select>
+      <label>Sub-Category</label>
+      <input type="text" id="subCategory" readonly>
 
-      <label>Notes:</label>
+      <label>Payment Method</label>
+      <select name="paymentMethod" id="paymentMethod"></select>
+
+      <label>Expense Nature</label>
+      <input type="text" id="expenseNature" readonly>
+
+      <label>Notes</label>
       <textarea name="notes"></textarea>
 
       <button type="submit">Add Expense</button>
@@ -87,47 +108,73 @@
     <div id="message"></div>
 
     <script>
-      // Set current date as default in date input
-      document.addEventListener('DOMContentLoaded', function() {
-        var today = new Date();
-        var yyyy = today.getFullYear();
-        var mm = String(today.getMonth() + 1).padStart(2, '0');
-        var dd = String(today.getDate()).padStart(2, '0');
-        var formatted = yyyy + '-' + mm + '-' + dd;
-        document.querySelector('input[type="date"]').value = formatted;
+      // Set today's date
+      document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('date').value =
+          new Date().toISOString().substring(0, 10);
+
+        google.script.run
+          .withSuccessHandler(populateDropdowns)
+          .getDropdownOptions();
       });
-      
+
+      // Populate all dropdowns based on selections
       function populateDropdowns(options) {
+        const expenseSelect = document.getElementById('expenseName');
         const categorySelect = document.getElementById('category');
-        options.categories.forEach(cat => {
-          const option = document.createElement('option');
-          option.textContent = cat;
-          option.value = cat;
-          categorySelect.appendChild(option);
-        });
         const paymentSelect = document.getElementById('paymentMethod');
-        options.payments.forEach(pay => {
-          const option = document.createElement('option');
-          option.textContent = pay;
-          option.value = pay;
-          paymentSelect.appendChild(option);
-        });
+
+        expenseSelect.innerHTML = '<option value="">Select...</option>';
+        categorySelect.innerHTML = '';
+        paymentSelect.innerHTML = '';
+
+        options.expenseNames.forEach(v =>
+          expenseSelect.add(new Option(v, v))
+        );
+
+        options.categories.forEach(v =>
+          categorySelect.add(new Option(v, v))
+        );
+
+        options.payments.forEach(v =>
+          paymentSelect.add(new Option(v, v))
+        );
       }
 
-      google.script.run.withSuccessHandler(populateDropdowns).getDropdownOptions();
+      document
+        .getElementById('expenseName')
+        .addEventListener('change', function () {
+          const expenseName = this.value;
+          if (!expenseName) return;
 
-      document.getElementById('expenseForm').addEventListener('submit', e => {
-        e.preventDefault();
-        const data = Object.fromEntries(new FormData(e.target).entries());
-        google.script.run.withSuccessHandler(msg => {
-          document.getElementById('message').textContent = msg;
-          e.target.reset();
+          google.script.run
+            .withSuccessHandler(data => {
+              document.getElementById('category').value = data.category || '';
+              document.getElementById('subCategory').value = data.subCategory || '';
+              document.getElementById('paymentMethod').value = data.payment || '';
+              document.getElementById('expenseNature').value = data.nature || '';
+            })
+            .getExpenseDetails(expenseName);
+        });
 
-          // Reset date to today in yyyy-mm-dd format immediately  
-          const today = new Date().toISOString().substring(0, 10);
-          document.querySelector('input[type="date"]').value = today;
-        }).saveExpense(data);
-      });
+      document
+        .getElementById('expenseForm')
+        .addEventListener('submit', e => {
+          e.preventDefault();
+
+          const formData = Object.fromEntries(
+            new FormData(e.target).entries()
+          );
+
+          google.script.run
+            .withSuccessHandler(msg => {
+              document.getElementById('message').textContent = msg;
+              e.target.reset();
+              document.getElementById('date').value =
+                new Date().toISOString().substring(0, 10);
+            })
+            .saveExpense(formData);
+        });
     </script>
   </body>
 </html>

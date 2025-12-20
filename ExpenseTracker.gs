@@ -4,7 +4,6 @@ function onOpen() {
     .addItem('Add Expense', 'showSidebar')
     .addToUi();
 
-  // Open sidebar form automatically on sheet open
   showSidebar();
 }
 
@@ -14,87 +13,203 @@ function showSidebar() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-// Get Category and Payment Method options from named ranges
+/**
+ * Dropdown options for the form
+ */
 function getDropdownOptions() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet();
-  const categoryRange = sheet.getRangeByName('CategoryRange');
-  const paymentRange = sheet.getRangeByName('PaymentMethodRange');
-  
-  const uniqueCategories = [];
-  const uniquePayments = [];
-  
-  if (categoryRange) {
-    const categories = categoryRange.getValues().flat();
-    categories.forEach(cat => {
-      if (cat && !uniqueCategories.includes(cat)) {
-        uniqueCategories.push(cat);
-      }
-    });
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const master = ss.getSheetByName('Expense_Master');
+
+  const lastRow = master.getLastRow();
+  if (lastRow < 2) {
+    return { expenseNames: [], categories: [], payments: [] };
   }
-  
-  if (paymentRange) {
-    const payments = paymentRange.getValues().flat();
-    payments.forEach(pay => {
-      if (pay && !uniquePayments.includes(pay)) {
-        uniquePayments.push(pay);
-      }
-    });
-  }
-  
+
+  // Read required columns
+  const data = master.getRange(2, 1, lastRow - 1, 5).getValues();
+  // Columns assumed:
+  // A = Expense Name
+  // B = CategoryRange
+  // D = DefaultPayment
+
+  // Sort by Category, then Expense Name
+  data.sort((a, b) => {
+    const catA = (a[1] || '').toString();
+    const catB = (b[1] || '').toString();
+
+    if (catA !== catB) {
+      return catA.localeCompare(catB);
+    }
+
+    return (a[0] || '').toString().localeCompare((b[0] || '').toString());
+  });
+
+  const expenseNames = [];
+  const categoriesSet = new Set();
+  const paymentsSet = new Set();
+
+  data.forEach(row => {
+    const expenseName = row[0];
+    const category = row[1];
+    const payment = row[3];
+
+    if (expenseName) expenseNames.push(expenseName);
+    if (category) categoriesSet.add(category);
+    if (payment) paymentsSet.add(payment);
+  });
+
   return {
-    categories: uniqueCategories,
-    payments: uniquePayments
+    expenseNames,
+    categories: [...categoriesSet],
+    payments: [...paymentsSet]
   };
 }
 
+/**
+ * Lookup expense details by Expense Name
+ */
+function getExpenseDetails(expenseName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const master = ss.getSheetByName('Expense_Master');
+  const data = master.getDataRange().getValues();
+
+  const header = data.shift();
+  const idx = {
+    expense: header.indexOf('Expense Name'),
+    category: header.indexOf('CategoryRange'),
+    sub: header.indexOf('Sub-Category'),
+    payment: header.indexOf('DefaultPayment'),
+    nature: header.indexOf('Expense Nature')
+  };
+
+  const row = data.find(r => r[idx.expense] === expenseName);
+  if (!row) return {};
+
+  return {
+    category: row[idx.category],
+    subCategory: row[idx.sub],
+    payment: row[idx.payment],
+    nature: row[idx.nature]
+  };
+}
+
+/**
+ * Find insert row so newest dates stay on top
+ */
 function findInsertRowByDate(sheet, newDate) {
-  // Assuming "Date" is in column 1, data starts at row 2
   const lastRow = sheet.getLastRow();
+  const testDate = new Date(newDate);
+
   for (let i = 2; i <= lastRow; i++) {
-    const cellDateStr = sheet.getRange(i, 1).getValue();
-    if (!cellDateStr) continue;
+    const cellDate = sheet.getRange(i, 1).getValue();
+    if (!cellDate) continue;
 
-    // Parse both Excel and ISO date formats
-    const cellDate = new Date(cellDateStr);
-    const testDate = new Date(newDate);
-
-    // If the new date is greater or equal, insert above this row
-    // For descending order: newer dates higher
-    if (testDate >= cellDate) {
+    if (testDate >= new Date(cellDate)) {
       return i;
     }
   }
-  // If not found, insert at the bottom
   return lastRow + 1;
 }
 
+/**
+ * Save expense — ALWAYS re-derive from Expense_Master
+ */
 function saveExpense(data) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheetName = getMonthSheetName(data.date);
+  const sheet = getOrCreateMonthSheet(sheetName);
+  const master = ss.getSheetByName('Expense_Master');
 
-  // Find where to insert by date
-  const insertRow = findInsertRowByDate(sheet, data.date);
+  const masterData = master.getDataRange().getValues();
+  const header = masterData.shift();
 
-  // Insert a new row above found position
-  sheet.insertRowBefore(insertRow);
+  const idx = {
+    expense: header.indexOf('Expense Name'),
+    category: header.indexOf('CategoryRange'),
+    sub: header.indexOf('Sub-Category'),
+    payment: header.indexOf('DefaultPayment'),
+    nature: header.indexOf('Expense Nature')
+  };
 
-  // Correct expense/investment column logic
-  let amountValue = data.amount || 0;
+  const row = masterData.find(r => r[idx.expense] === data.expenseName);
+  if (!row) throw new Error('Invalid Expense Name');
+
+  const category = row[idx.category];
+  const subCategory = row[idx.sub];
+  const payment = data.paymentMethod || row[idx.payment];
+  const nature = row[idx.nature];
+
+  let amountValue = Number(data.amount) || 0;
   let investmentValue = 0;
-  if (data.category.trim().toLowerCase() === 'investments') {
+
+  if (category.toLowerCase() === 'investments') {
     investmentValue = amountValue;
     amountValue = 0;
   }
 
-  // Write the expense at the inserted row
+  const insertRow = findInsertRowByDate(sheet, data.date);
+  sheet.insertRowBefore(insertRow);
+
   const rowData = [
     data.date,
-    data.category,
-    data.description,
+    category,
+    data.expenseName,
     amountValue,
     investmentValue,
-    data.paymentMethod,
-    data.notes
+    payment,
+    subCategory,
+    nature,
+    data.notes || ''
   ];
+
   sheet.getRange(insertRow, 1, 1, rowData.length).setValues([rowData]);
-  return 'New expense added at ' + insertRow + ' for ' + amountValue + ', against ' + data.category + '.';
+
+  return `Added: ${data.expenseName} – ₹${amountValue || investmentValue}`;
+}
+
+/**
+ * Find the month sheet name
+ */
+function getMonthSheetName(dateStr) {
+  const d = new Date(dateStr);
+  return Utilities.formatDate(
+    d,
+    Session.getScriptTimeZone(),
+    'MMM yy'
+  );
+}
+
+/**
+ * Creates or gets month sheet
+ */
+function getOrCreateMonthSheet(sheetName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet) {
+    const template = ss.getSheetByName('_Month_Template');
+    if (!template) {
+      throw new Error('Template sheet "_Month_Template" not found');
+    }
+
+    const master = ss.getSheetByName('Expense_Master');
+    if (!master) {
+      throw new Error('Expense_Master sheet not found');
+    }
+
+    // Step 1: copy template (new sheet appears at end)
+    sheet = template.copyTo(ss);
+    sheet.setName(sheetName);
+    sheet.showSheet();
+
+    // Step 4: clear leftover data below header
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 2) {
+      sheet
+        .getRange(3, 1, lastRow - 2, sheet.getLastColumn())
+        .clearContent();
+    }
+  }
+
+  return sheet;
 }
