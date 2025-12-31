@@ -15,6 +15,8 @@ function showSidebar() {
 
 /**
  * Dropdown options for the form
+ * Expense_Master sheet with columns ordered
+ * (Expense Name, CategoryRange, Sub-Category, DefaultPayment, Expense Nature)
  */
 function getDropdownOptions() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -22,31 +24,14 @@ function getDropdownOptions() {
 
   const lastRow = master.getLastRow();
   if (lastRow < 2) {
-    return { expenseNames: [], categories: [], payments: [] };
+    return { expenseNames: [], categories: [], payment: [] };
   }
 
-  // Read required columns
   const data = master.getRange(2, 1, lastRow - 1, 5).getValues();
-  // Columns assumed:
-  // A = Expense Name
-  // B = CategoryRange
-  // D = DefaultPayment
 
-  // Sort by Category, then Expense Name
-  data.sort((a, b) => {
-    const catA = (a[1] || '').toString();
-    const catB = (b[1] || '').toString();
-
-    if (catA !== catB) {
-      return catA.localeCompare(catB);
-    }
-
-    return (a[0] || '').toString().localeCompare((b[0] || '').toString());
-  });
-
-  const expenseNames = [];
   const categoriesSet = new Set();
   const paymentsSet = new Set();
+  const expenseNames = [];
 
   data.forEach(row => {
     const expenseName = row[0];
@@ -58,12 +43,18 @@ function getDropdownOptions() {
     if (payment) paymentsSet.add(payment);
   });
 
+  // 🔑 Alphabetical sort (case-insensitive)
+  expenseNames.sort((a, b) =>
+    a.toString().localeCompare(b.toString(), undefined, { sensitivity: 'base' })
+  );
+
   return {
     expenseNames,
     categories: [...categoriesSet],
-    payments: [...paymentsSet]
+    payment: [...paymentsSet]
   };
 }
+
 
 /**
  * Lookup expense details by Expense Name
@@ -139,23 +130,16 @@ function saveExpense(data) {
   const payment = data.paymentMethod || row[idx.payment];
   const nature = row[idx.nature];
 
-  let amountValue = Number(data.amount) || 0;
-  let investmentValue = 0;
-
-  if (category.toLowerCase() === 'investments') {
-    investmentValue = amountValue;
-    amountValue = 0;
-  }
-
+  let spent = Number(data.amount) || 0;
+  sheet.activate();
   const insertRow = findInsertRowByDate(sheet, data.date);
   sheet.insertRowBefore(insertRow);
 
   const rowData = [
     data.date,
-    category,
     data.expenseName,
-    amountValue,
-    investmentValue,
+    spent,
+    category,
     payment,
     subCategory,
     nature,
@@ -164,7 +148,7 @@ function saveExpense(data) {
 
   sheet.getRange(insertRow, 1, 1, rowData.length).setValues([rowData]);
 
-  return `Added: ${data.expenseName} – ₹${amountValue || investmentValue}`;
+  return `Added: ${data.expenseName} – ₹${spent || investmentValue}`;
 }
 
 /**
@@ -180,7 +164,7 @@ function getMonthSheetName(dateStr) {
 }
 
 /**
- * Creates or gets month sheet
+ * Creates or gets month sheet from _Month_Template
  */
 function getOrCreateMonthSheet(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -190,11 +174,6 @@ function getOrCreateMonthSheet(sheetName) {
     const template = ss.getSheetByName('_Month_Template');
     if (!template) {
       throw new Error('Template sheet "_Month_Template" not found');
-    }
-
-    const master = ss.getSheetByName('Expense_Master');
-    if (!master) {
-      throw new Error('Expense_Master sheet not found');
     }
 
     // Step 1: copy template (new sheet appears at end)
